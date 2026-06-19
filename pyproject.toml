@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "promptgate-llm"
-version = "0.4.0"
+version = "0.4.2"
 description = "LLM security middleware and risk analysis layer for prompt injection detection"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,7 +25,7 @@ intent = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/SrivathsanVijayaraghavan/promptgate"
+Homepage = "https://github.com/SrivathsanVijayaraghavan/promptgate-llm"
 
 [tool.hatch.build.targets.wheel]
 packages = ["promptgate", "injectionbench"]
