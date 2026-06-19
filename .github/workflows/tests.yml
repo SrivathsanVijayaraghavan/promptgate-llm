@@ -22,7 +22,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: pip install -e ".[semantic]"
+        run: |
+          pip install pytest
+          pip install -e ".[semantic]"
 
       - name: Run tests
         run: python -m pytest tests/ -q --ignore=tests/test_intent.py --ignore=tests/test_regression.py --ignore=tests/test_malicious_coding.py
