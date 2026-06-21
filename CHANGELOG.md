@@ -64,3 +64,18 @@
 - Policy thresholds: 0.00-0.30 ALLOW, 0.30-0.55 FLAG, 0.55-0.75 REVIEW, 0.75-1.00 BLOCK
 - Configurable thresholds per deployment
 - Graceful degradation when optional dependencies absent
+
+## Tested Dependency Versions (0.4.2)
+
+Verified working against these versions on fresh install (June 2026):
+
+| Package | Version |
+|---------|---------|
+| transformers | 5.12.1 |
+| datasets | 5.0.0 |
+| huggingface_hub | 1.20.1 |
+| accelerate | 1.14.0 |
+| sentence-transformers | (install separately via [semantic]) |
+
+Note: pyproject.toml specifies lower bounds only. These are the versions
+resolved by pip at time of 0.4.2 publication and verified to work correctly.
