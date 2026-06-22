@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from promptgate.aggregator import aggregate
 from promptgate.detector.intent import IntentClassifier
+from promptgate.detector.output_filter import OutputFilter
 from promptgate.detector.rule_based import RuleBasedDetector
 from promptgate.detector.semantic import SemanticDetector
 from promptgate.parser.input_parser import parse_input
@@ -34,6 +35,9 @@ class PromptGate:
       - history        — conversation context for multi-turn attack detection
       - log_mode       — privacy-safe JSONL audit logging
       - on_block / on_flag / on_review / on_allow / on_error — callback hooks
+
+    Phase 8 additions:
+      - check_output() — screen LLM-generated responses before returning to user
     """
 
     def __init__(
@@ -97,6 +101,7 @@ class PromptGate:
         self.rule_detector = RuleBasedDetector()
         self.semantic_detector = SemanticDetector(threshold=semantic_threshold)
         self.intent_detector = IntentClassifier(threshold=intent_threshold)
+        self.output_filter = OutputFilter(semantic_threshold=semantic_threshold)
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -220,16 +225,6 @@ class PromptGate:
         identical inputs can be correlated across requests without exposing
         prompt content. All other fields are metadata only.
 
-        Log record fields:
-            timestamp       — ISO 8601 UTC timestamp
-            input_hash      — "sha256:" + hex digest of raw input
-            decision        — ALLOW / FLAG / REVIEW / BLOCK
-            confidence      — accumulated risk score [0.0, 1.0]
-            risk_level      — minimal / low / medium / high
-            threat_categories — list of detected threat categories
-            signal_count    — number of signals that fired
-            signals_checked — audit strings from each detection layer
-
         Logging failures (disk full, permission error, etc.) are silently
         swallowed — they must never crash or delay the detection pipeline.
 
@@ -292,27 +287,11 @@ class PromptGate:
     ) -> dict:
         """Run the full three-layer risk classification pipeline.
 
-        Pipeline steps:
-          1. parse    — normalise, lowercase, detect encoding anomalies
-          2. rule     — keyword/phrase matching against pattern files
-          3. semantic — embedding similarity against known attack library
-          4. intent   — fine-tuned classifier; receives history context
-          5. aggregate — group signals into threat categories
-          6. score    — accumulate severities, clamp to [0.0, 1.0]
-          7. decide   — map score to ALLOW / FLAG / REVIEW / BLOCK
-          8. log      — append audit record if log_mode=True
-          9. hook     — call the matching decision callback if set
-         10. build    — assemble and return the final structured response
-
         Args:
             user_input: Raw user prompt text.
             history: Optional list of previous conversation turns for
                      multi-turn attack detection. Each turn is a dict
                      with keys 'role' (str) and 'content' (str).
-                     The last 3 turns are prepended to the input before
-                     intent classification. Rule-based and semantic layers
-                     always analyse the current input only.
-                     Invalid turn dicts are silently skipped.
 
         Returns:
             Structured response dict with exactly 7 keys:
@@ -343,30 +322,23 @@ class PromptGate:
         Runs the full three-layer pipeline across all inputs. The semantic
         detector encodes all inputs in one batch, making this significantly
         faster than calling check() in a loop when the semantic layer is
-        active. Rule-based and intent detectors are called per input as
-        they have no batching API.
-
-        Log mode and callback hooks apply per result, identical to check().
+        active.
 
         Args:
             inputs: List of raw user prompt strings.
 
         Returns:
-            List of result dicts in the same order as inputs. Each dict has
-            the same 7-key structure as check(). Returns [] if inputs is empty.
+            List of result dicts in the same order as inputs.
+            Returns [] if inputs is empty.
         """
         if not inputs:
             return []
 
-        # Parse all inputs upfront
         parsed_list = [parse_input(inp) for inp in inputs]
         cleaned_list = [p["cleaned_text"] for p in parsed_list]
 
-        # Semantic batch — one model.encode() call for all inputs
         if not self.skip_semantic and self.semantic_detector.is_available():
             semantic_signals_list = self.semantic_detector.detect_batch(cleaned_list)
-            # detect_batch returns [] when inputs is non-empty but all are
-            # blank — normalise to list of empty lists in that case.
             if not semantic_signals_list:
                 semantic_signals_list = [[] for _ in inputs]
         else:
@@ -374,7 +346,6 @@ class PromptGate:
 
         results = []
         for i, (raw_input, cleaned) in enumerate(zip(inputs, cleaned_list)):
-            # Layer 1 — Rule-based (per input)
             rule_signals = self.rule_detector.detect(cleaned)
             rule_checked = (
                 f"rule_based: {len(rule_signals)} pattern{'s' if len(rule_signals) != 1 else ''} matched"
@@ -382,7 +353,6 @@ class PromptGate:
                 else "rule_based: no injection patterns found"
             )
 
-            # Layer 2 — Semantic (already computed in batch above)
             semantic_signals = semantic_signals_list[i] if i < len(semantic_signals_list) else []
             if self.skip_semantic:
                 semantic_checked = "semantic: skipped by configuration"
@@ -395,7 +365,6 @@ class PromptGate:
                     else "semantic: no similar attacks found"
                 )
 
-            # Layer 3 — Intent (per input, no batch API)
             intent_signals = []
             if self.skip_intent:
                 intent_checked = "intent: skipped by configuration"
@@ -413,17 +382,14 @@ class PromptGate:
             signals_checked = [rule_checked, semantic_checked, intent_checked]
 
             aggregated = aggregate(all_signals)
-            signals = aggregated["signals"]
-            threat_categories = aggregated["threat_categories"]
-
-            risk_score = score(signals)
+            risk_score = score(aggregated["signals"])
             decision = evaluate(risk_score, self.thresholds)
 
             result = build_response(
                 decision=decision,
                 risk_score=risk_score,
-                threat_categories=threat_categories,
-                signals=signals,
+                threat_categories=aggregated["threat_categories"],
+                signals=aggregated["signals"],
                 signals_checked=signals_checked,
             )
 
@@ -436,10 +402,77 @@ class PromptGate:
                 "ALLOW":  self.on_allow,
             }
             self._call_hook(hook_map.get(decision), result)
-
             results.append(result)
 
         return results
+
+    def check_output(self, llm_output: str) -> dict:
+        """Screen an LLM-generated response for leaked secrets, system
+        prompt echoes, or harmful content before returning it to the user.
+
+        Mirrors check() in pipeline shape and response format: same 7-key
+        structured response, same 0.0-1.0 signal accumulation, same
+        ALLOW/FLAG/REVIEW/BLOCK decision bands. Uses the output_filter
+        detector instead of the three input-side detectors.
+
+        Intended usage pattern::
+
+            gate = PromptGate()
+
+            # Input side — screen before sending to LLM
+            input_result = gate.check(user_message)
+            if input_result["decision"] != "ALLOW":
+                return input_result["message"]
+
+            llm_response = call_your_llm(user_message)
+
+            # Output side — screen before returning to user
+            output_result = gate.check_output(llm_response)
+            if output_result["decision"] != "ALLOW":
+                return "Response withheld — sensitive content detected."
+
+            return llm_response
+
+        Args:
+            llm_output: Raw text produced by the protected LLM.
+
+        Returns:
+            Same 7-key structured response dict as check():
+            decision, confidence, risk_level, threat_categories,
+            signals, signals_checked, message.
+        """
+        if not isinstance(llm_output, str):
+            llm_output = str(llm_output)
+
+        signals = self.output_filter.detect(llm_output)
+        aggregated = aggregate(signals)
+        risk_score = score(aggregated["signals"])
+        decision = evaluate(risk_score, self.thresholds)
+
+        output_checked = (
+            "output_filter: "
+            + (f"{len(signals)} signal(s) detected" if signals else "no leaks detected")
+        )
+
+        result = build_response(
+            decision=decision,
+            risk_score=risk_score,
+            threat_categories=aggregated["threat_categories"],
+            signals=aggregated["signals"],
+            signals_checked=[output_checked],
+        )
+
+        self._log_decision(llm_output, result)
+
+        hook_map = {
+            "BLOCK":  self.on_block,
+            "FLAG":   self.on_flag,
+            "REVIEW": self.on_review,
+            "ALLOW":  self.on_allow,
+        }
+        self._call_hook(hook_map.get(decision), result)
+
+        return result
 
     async def acheck(
         self,
@@ -449,26 +482,11 @@ class PromptGate:
         """Async version of check().
 
         Runs the synchronous detection pipeline in a thread pool executor
-        to avoid blocking the event loop during model inference. Safe to
-        call concurrently from async code.
+        to avoid blocking the event loop during model inference.
 
         NOTE: PyTorch inference holds the GIL. Concurrent acheck() calls
-        will serialize rather than run in true parallel. For high-throughput
-        concurrent workloads, create multiple PromptGate instances.
-
-        FastAPI usage example::
-
-            app = FastAPI()
-            gate = PromptGate()
-
-            @app.post("/chat")
-            async def chat(message: str):
-                result = await gate.acheck(message)
-                if result["decision"] != "ALLOW":
-                    raise HTTPException(
-                        status_code=403, detail=result["message"]
-                    )
-                return {"response": await call_your_llm(message)}
+        on the same instance will serialize during intent classification.
+        For high-throughput concurrent workloads, use multiple instances.
 
         Args:
             user_input: Raw user prompt text.
@@ -487,9 +505,6 @@ class PromptGate:
 
         Runs check_batch() in a thread pool executor. Inherits the same
         semantic batching optimisation as check_batch().
-
-        NOTE: PyTorch inference holds the GIL. See acheck() for details
-        on concurrency limitations.
 
         Args:
             inputs: List of raw user prompt strings.

@@ -1,0 +1,41 @@
+# PromptGate output-side pattern file
+# Format: # signal: <name>  followed by one regex pattern per line
+# All patterns are compiled as re.IGNORECASE | re.MULTILINE
+# Blank lines and lines starting with # are ignored
+
+# signal: secret_leak
+# API keys and tokens — common formats used by major providers
+sk-[a-zA-Z0-9]{20,}
+sk-proj-[a-zA-Z0-9_-]{20,}
+AKIA[0-9A-Z]{16}
+ghp_[a-zA-Z0-9]{36}
+gho_[a-zA-Z0-9]{36}
+glpat-[a-zA-Z0-9_-]{20}
+xox[bpas]-[0-9A-Za-z-]{10,}
+EAACEdEose0cBA[0-9A-Za-z]+
+AIza[0-9A-Za-z_-]{35}
+[aA][pP][iI][-_]?[kK][eE][yY]\s*[:=]\s*['"]?[a-zA-Z0-9_\-]{16,}['"]?
+[sS]ecret[-_]?[kK]ey\s*[:=]\s*['"]?[a-zA-Z0-9_\-]{16,}['"]?
+[aA]ccess[-_]?[tT]oken\s*[:=]\s*['"]?[a-zA-Z0-9_\-]{16,}['"]?
+[bB]earer\s+[a-zA-Z0-9_\-\.]{20,}
+[pP]assword\s*[:=]\s*['"]?[a-zA-Z0-9!@#$%^&*_\-]{8,}['"]?
+[dD]atabase[-_]?[uU][rR][lL]\s*[:=]\s*['"]?[a-zA-Z0-9+.\-]+://[^\s'"]{10,}['"]?
+
+# signal: system_prompt_echo
+# Phrases an LLM commonly produces when echoing its system prompt
+you are a helpful assistant (and|who|that)
+my (core )?instructions (are|say|tell me) to
+i (have been|was) (told|instructed|configured|programmed) to
+(according to|as per|based on) my (system |initial )?(prompt|instructions|directives|configuration)
+my system prompt (says|states|specifies|is|tells me)
+i (must|should|cannot|can't|am not allowed to|am instructed to) (never |always )?
+the (context|system message|initial message|setup) (says|tells me|states|specifies)
+i('m| am) (operating|running|functioning) (under|with|according to) (the following )?(instructions|guidelines|rules|directives)
+(here are|these are) my (system |core |base )?(instructions|guidelines|rules|directives|constraints)
+
+# signal: harmful_instruction_leak
+# Patterns suggesting the LLM is outputting synthesized harmful how-to content
+(here('s| is)|step[- ]by[- ]step|follow these steps).*?(how to (make|synthesize|create|build|obtain|acquire))
+(step\s+1|first[,:]?\s+you('ll| will)?|to (begin|start)[,:]).*?(dangerous|illegal|harmful|explosive|weapon)
+(the (materials|ingredients|chemicals|components) (you need|required|needed|to use) are)
+(here is (a|the) (recipe|guide|method|process|procedure|tutorial) for)

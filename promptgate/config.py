@@ -8,6 +8,10 @@ SIGNAL_SEVERITIES = {
     "system_override":       0.85,
     "encoding_trick":        0.80,
     "data_exfiltration":     0.70,
+    "secret_leak":                 0.90,
+"system_prompt_echo":          0.75,
+"harmful_instruction_leak":    0.85,
+"semantic_output_similarity":  0.60,
 
     # Social engineering — only dangerous in combination
     "authority_claim":       0.40,
@@ -52,4 +56,8 @@ SIGNAL_TO_CATEGORY = {
     "sensitive_operation":   "operation",
     "semantic_similarity":   "semantic",
     "intent_injection":      "intent_injection",
+    "secret_leak":                 "output_secret_leak",
+"system_prompt_echo":          "output_system_prompt_echo",
+"harmful_instruction_leak":    "output_harmful_content",
+"semantic_output_similarity":  "output_semantic_similarity",
 }
