@@ -38,6 +38,7 @@ class PromptGate:
 
     Phase 8 additions:
       - check_output() — screen LLM-generated responses before returning to user
+      - sanitize()     — strip character-level attack primitives from input
     """
 
     def __init__(
@@ -473,6 +474,125 @@ class PromptGate:
         self._call_hook(hook_map.get(decision), result)
 
         return result
+
+    def sanitize(self, user_input: str) -> dict:
+        """Return a sanitized version of the input with known dangerous
+        character-level primitives neutralized, alongside the standard
+        risk assessment.
+
+        Sanitization scope is STRICTLY LIMITED to character-level attack
+        primitives that input_parser already detects:
+          - Zero-width / invisible unicode characters: stripped entirely
+          - Homoglyph characters (Cyrillic and other lookalike scripts):
+            normalized to closest ASCII equivalent via unicodedata
+
+        This does NOT rewrite, paraphrase, or remove injection PHRASES.
+        Removing "ignore previous instructions" as a phrase is a detection
+        problem handled by check() — not a sanitization problem. Phrase-
+        level rewriting risks silently altering legitimate inputs.
+
+        Base64-looking payloads are deliberately NOT decoded or removed —
+        the intent is ambiguous (legitimate base64 exists), and decoding
+        attacker-controlled data introduces its own risks. They are
+        flagged by check() via encoding_obfuscation signals instead.
+
+        Args:
+            user_input: Raw user prompt text.
+
+        Returns:
+            Dict with exactly three keys:
+                sanitized_text  (str)  — input with character primitives
+                                         removed/normalized. Equals
+                                         user_input if nothing modified.
+                modifications   (list) — human-readable list of changes,
+                                         e.g. ["stripped 2 zero-width char(s)",
+                                               "normalized 3 homoglyph char(s)"].
+                                         Empty list if no changes were made.
+                original_check  (dict) — same as calling check(user_input)
+                                         on the ORIGINAL unsanitized input.
+        """
+        import re
+        import unicodedata
+
+        modifications: list[str] = []
+        text = user_input
+
+        # Step 1 — Strip zero-width and invisible unicode characters.
+        # These split keywords across invisible boundaries:
+        # "ignore\u200bprevious" looks identical to "ignoreprevious" visually
+        # but may fool substring matchers that operate on raw codepoints.
+        _ZW_PATTERN = re.compile(
+            "[\u200b\u200c\u200d\u2060\ufeff\u00ad]"
+        )
+        zw_matches = _ZW_PATTERN.findall(text)
+        if zw_matches:
+            text = _ZW_PATTERN.sub("", text)
+            modifications.append(f"stripped {len(zw_matches)} zero-width char(s)")
+
+        # Step 2 — Normalize homoglyph characters to ASCII equivalents.
+        # Attackers replace Latin chars with visually identical Cyrillic or
+        # other script lookalikes: і (Cyrillic, U+0456) instead of i (Latin).
+        #
+        # NFKD normalization alone is insufficient — Cyrillic homoglyphs are
+        # standalone Unicode characters with no ASCII decomposition, so NFKD
+        # returns them unchanged. We use an explicit lookup table for the most
+        # common visual lookalikes used in injection attacks, then fall back
+        # to NFKD for composed characters (e.g., accented Latin letters).
+        _HOMOGLYPH_MAP: dict[str, str] = {
+            # Lowercase Cyrillic lookalikes
+            "\u0430": "a",   # Cyrillic а
+            "\u0435": "e",   # Cyrillic е
+            "\u0456": "i",   # Cyrillic і (byelorussian-ukrainian i)
+            "\u0457": "i",   # Cyrillic ї
+            "\u043e": "o",   # Cyrillic о
+            "\u0440": "r",   # Cyrillic р
+            "\u0441": "c",   # Cyrillic с
+            "\u0445": "x",   # Cyrillic х
+            "\u0443": "y",   # Cyrillic у
+            "\u0455": "s",   # Cyrillic dze
+            # Uppercase Cyrillic lookalikes
+            "\u0410": "A",   # Cyrillic А
+            "\u0412": "B",   # Cyrillic В
+            "\u0415": "E",   # Cyrillic Е
+            "\u0406": "I",   # Cyrillic І
+            "\u041c": "M",   # Cyrillic М
+            "\u041d": "H",   # Cyrillic Н
+            "\u041e": "O",   # Cyrillic О
+            "\u0420": "R",   # Cyrillic Р
+            "\u0421": "C",   # Cyrillic С
+            "\u0422": "T",   # Cyrillic Т
+            "\u0425": "X",   # Cyrillic Х
+        }
+
+        normalized_chars: list[str] = []
+        homoglyph_count = 0
+        for char in text:
+            if char in _HOMOGLYPH_MAP:
+                # Explicit homoglyph hit
+                normalized_chars.append(_HOMOGLYPH_MAP[char])
+                homoglyph_count += 1
+            elif ord(char) > 127:
+                # Try NFKD for composed characters (e.g., accented Latin)
+                nfkd = unicodedata.normalize("NFKD", char)
+                ascii_equiv = nfkd.encode("ascii", errors="ignore").decode("ascii")
+                if ascii_equiv:
+                    normalized_chars.append(ascii_equiv)
+                    homoglyph_count += 1
+                else:
+                    # Legitimate non-ASCII (e.g., Chinese, Arabic) — keep
+                    normalized_chars.append(char)
+            else:
+                normalized_chars.append(char)
+
+        if homoglyph_count > 0:
+            text = "".join(normalized_chars)
+            modifications.append(f"normalized {homoglyph_count} homoglyph char(s)")
+
+        return {
+            "sanitized_text": text,
+            "modifications": modifications,
+            "original_check": self.check(user_input),
+        }
 
     async def acheck(
         self,
