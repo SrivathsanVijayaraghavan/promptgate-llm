@@ -6,7 +6,7 @@ Tests for promptgate/integrations/openai.py — PromptGateOpenAI wrapper.
 No OpenAI API key required — the OpenAI client is fully mocked.
 Uses skip_intent=True on the gate fixture (CI-safe, no 267MB model).
 """
-
+pytest.importorskip("openai")
 from __future__ import annotations
 
 from typing import Any
