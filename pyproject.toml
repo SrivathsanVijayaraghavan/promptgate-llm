@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "promptgate-llm"
-version = "0.5.0"
+version = "0.5.1"
 description = "LLM security middleware and risk analysis layer for prompt injection detection"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -22,6 +22,22 @@ intent = [
     "datasets>=2.0.0",
     "scikit-learn>=1.0.0",
     "accelerate>=1.1.0",
+]
+fastapi = [
+    "fastapi>=0.115.0",
+    "starlette>=1.0.0",
+    "httpx>=0.24.0",
+    "uvicorn>=0.14.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "httpx>=0.24.0",
+]
+langchain = [
+    "langchain-core>=0.1.0",
+]
+openai = [
+    "openai>=1.0.0",
 ]
 
 [project.urls]
