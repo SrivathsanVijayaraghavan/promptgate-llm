@@ -4,9 +4,9 @@ Uses FastAPI's TestClient (httpx) — no live server required.
 All tests run with skip_semantic=True, skip_intent=True for speed;
 detection logic is tested in other test modules.
 """
-fastapi = pytest.importorskip("fastapi")
 import json
 import pytest
+pytest.importorskip("fastapi")
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 

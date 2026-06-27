@@ -3,11 +3,10 @@
 All tests mock the LangChain LLM — no API key required.
 Uses langchain-core primitives directly to simulate chain execution.
 """
-pytest.importorskip("langchain_core")
 import logging
 import uuid
 import pytest
-
+pytest.importorskip("langchain_core")
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.outputs import LLMResult, Generation, ChatGeneration, ChatGenerationChunk
 from langchain_core.outputs.chat_generation import ChatGeneration
