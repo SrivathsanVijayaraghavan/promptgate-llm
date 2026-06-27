@@ -1,0 +1,22 @@
+name: Nightly model tests
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  model-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install with intent extra
+        run: pip install -e ".[dev,intent,semantic]"
+      - name: Run model-dependent tests
+        run: |
+          pytest tests/test_intent.py tests/test_regression.py tests/test_malicious_coding.py -v
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
