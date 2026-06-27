@@ -1,36 +1,35 @@
 name: Tests
-
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-
       - name: Install dependencies
         run: |
           pip install pytest
-          pip install -e ".[semantic]"
-
+          pip install -e ".[semantic,fastapi,langchain,openai]"
       - name: Run tests
         run: |
-          # Excludes test_intent.py, test_regression.py, test_malicious_coding.py
-          # because all three require the 267MB intent model from HuggingFace Hub.
-          # These tests run locally before every push via: python -m pytest tests/ -q
-          # A scheduled nightly workflow that downloads the model and runs the full
-          # 186-test suite is planned for a future phase.
-          python -m pytest tests/ -q --ignore=tests/test_intent.py --ignore=tests/test_regression.py --ignore=tests/test_malicious_coding.py
+          # Excluded from CI (require 267MB intent model from HF Hub):
+          #   test_intent.py, test_regression.py, test_malicious_coding.py
+          # Excluded from CI (require OpenAI API key):
+          #   none — test_openai_wrapper.py uses a mock client, no key needed
+          # All integration tests (fastapi, langchain, openai) run in CI
+          # because they use mocks and have no external dependencies.
+          # Nightly workflow runs the full model-dependent suite separately.
+          python -m pytest tests/ -q \
+            --ignore=tests/test_intent.py \
+            --ignore=tests/test_regression.py \
+            --ignore=tests/test_malicious_coding.py
