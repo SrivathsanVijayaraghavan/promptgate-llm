@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "promptgate-llm"
-version = "0.5.1"
+version = "0.6.0"
 description = "LLM security middleware and risk analysis layer for prompt injection detection"
 readme = "README.md"
 requires-python = ">=3.10"
